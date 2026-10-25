@@ -18,8 +18,11 @@ public class UsuarioResponse {
     private String nombre;
     private String apellido;
     private String email;
+    private Integer semestre;
+    private String grupo;
     private Rol rol;
     private Boolean activo;
+    private LocalDateTime fechaRegistro;
     private LocalDateTime fechaCreacion;
     private LocalDateTime fechaActualizacion;
 }
