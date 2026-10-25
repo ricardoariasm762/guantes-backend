@@ -7,6 +7,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
@@ -26,14 +27,21 @@ public class Usuario implements UserDetails {
     @Column(nullable = false, length = 100)
     private String nombre;
 
-    @Column(nullable = false, length = 100)
-    private String apellido;
+    @Column(length = 100)
+    @Builder.Default
+    private String apellido = "";
 
     @Column(nullable = false, unique = true, length = 150)
     private String email;
 
     @Column(nullable = false)
     private String password;
+
+    @Column(name = "semestre")
+    private Integer semestre;
+
+    @Column(name = "grupo", length = 50)
+    private String grupo;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -49,6 +57,13 @@ public class Usuario implements UserDetails {
     @Column(name = "fecha_actualizacion")
     private LocalDateTime fechaActualizacion;
 
+    @OneToOne(mappedBy = "usuario", cascade = CascadeType.ALL, orphanRemoval = true)
+    private Progreso progreso;
+
+    @OneToMany(mappedBy = "usuario", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<IntentoPractica> intentos = new ArrayList<>();
+
     @PrePersist
     public void prePersist() {
         if (fechaCreacion == null) {
@@ -62,6 +77,10 @@ public class Usuario implements UserDetails {
     @PreUpdate
     public void preUpdate() {
         fechaActualizacion = LocalDateTime.now();
+    }
+
+    public LocalDateTime getFechaRegistro() {
+        return fechaCreacion;
     }
 
     @Override
@@ -97,3 +116,4 @@ public class Usuario implements UserDetails {
         return activo != null ? activo : true;
     }
 }
+
