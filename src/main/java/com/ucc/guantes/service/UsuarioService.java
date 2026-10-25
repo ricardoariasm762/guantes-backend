@@ -2,6 +2,7 @@ package com.ucc.guantes.service;
 
 import com.ucc.guantes.dto.usuario.UsuarioRequest;
 import com.ucc.guantes.dto.usuario.UsuarioResponse;
+import com.ucc.guantes.dto.usuario.UsuarioUpdateRequest;
 import com.ucc.guantes.exception.BadRequestException;
 import com.ucc.guantes.exception.ResourceNotFoundException;
 import com.ucc.guantes.model.Rol;
@@ -20,6 +21,7 @@ public class UsuarioService {
 
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
+    private final ProgresoService progresoService;
 
     @Transactional(readOnly = true)
     public List<UsuarioResponse> listarTodos() {
@@ -43,7 +45,7 @@ public class UsuarioService {
     }
 
     @Transactional
-    public UsuarioResponse crear(UsuarioRequest request) {
+    public UsuarioResponse crearUsuario(UsuarioRequest request) {
         if (usuarioRepository.existsByEmail(request.getEmail())) {
             throw new BadRequestException("El email ya se encuentra registrado: " + request.getEmail());
         }
@@ -52,21 +54,32 @@ public class UsuarioService {
             throw new BadRequestException("La contraseña es obligatoria para nuevos usuarios");
         }
 
+        String apellido = request.getApellido() != null ? request.getApellido() : "";
+
         Usuario usuario = Usuario.builder()
                 .nombre(request.getNombre())
-                .apellido(request.getApellido())
+                .apellido(apellido)
                 .email(request.getEmail())
                 .password(passwordEncoder.encode(request.getPassword()))
+                .semestre(request.getSemestre())
+                .grupo(request.getGrupo())
                 .rol(request.getRol() != null ? request.getRol() : Rol.ESTUDIANTE)
                 .activo(request.getActivo() != null ? request.getActivo() : true)
                 .build();
 
         Usuario guardado = usuarioRepository.save(usuario);
+        progresoService.crearProgresoInicial(guardado);
+
         return mapToResponse(guardado);
     }
 
     @Transactional
-    public UsuarioResponse actualizar(Long id, UsuarioRequest request) {
+    public UsuarioResponse crear(UsuarioRequest request) {
+        return crearUsuario(request);
+    }
+
+    @Transactional
+    public UsuarioResponse actualizarUsuario(Long id, UsuarioUpdateRequest request) {
         Usuario usuario = usuarioRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario", "id", id));
 
@@ -75,12 +88,12 @@ public class UsuarioService {
         }
 
         usuario.setNombre(request.getNombre());
-        usuario.setApellido(request.getApellido());
-        usuario.setEmail(request.getEmail());
-
-        if (request.getPassword() != null && !request.getPassword().isBlank()) {
-            usuario.setPassword(passwordEncoder.encode(request.getPassword()));
+        if (request.getApellido() != null) {
+            usuario.setApellido(request.getApellido());
         }
+        usuario.setEmail(request.getEmail());
+        usuario.setSemestre(request.getSemestre());
+        usuario.setGrupo(request.getGrupo());
 
         if (request.getRol() != null) {
             usuario.setRol(request.getRol());
@@ -90,8 +103,27 @@ public class UsuarioService {
             usuario.setActivo(request.getActivo());
         }
 
+        if (request.getPassword() != null && !request.getPassword().trim().isEmpty()) {
+            usuario.setPassword(passwordEncoder.encode(request.getPassword()));
+        }
+
         Usuario actualizado = usuarioRepository.save(usuario);
         return mapToResponse(actualizado);
+    }
+
+    @Transactional
+    public UsuarioResponse actualizar(Long id, UsuarioRequest request) {
+        UsuarioUpdateRequest updateRequest = UsuarioUpdateRequest.builder()
+                .nombre(request.getNombre())
+                .apellido(request.getApellido())
+                .email(request.getEmail())
+                .semestre(request.getSemestre())
+                .grupo(request.getGrupo())
+                .rol(request.getRol())
+                .password(request.getPassword())
+                .activo(request.getActivo())
+                .build();
+        return actualizarUsuario(id, updateRequest);
     }
 
     @Transactional
@@ -103,11 +135,15 @@ public class UsuarioService {
     }
 
     @Transactional
+    public void eliminarUsuario(Long id) {
+        Usuario usuario = usuarioRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario", "id", id));
+        usuarioRepository.delete(usuario);
+    }
+
+    @Transactional
     public void eliminar(Long id) {
-        if (!usuarioRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Usuario", "id", id);
-        }
-        usuarioRepository.deleteById(id);
+        eliminarUsuario(id);
     }
 
     public UsuarioResponse mapToResponse(Usuario usuario) {
@@ -116,8 +152,11 @@ public class UsuarioService {
                 .nombre(usuario.getNombre())
                 .apellido(usuario.getApellido())
                 .email(usuario.getEmail())
+                .semestre(usuario.getSemestre())
+                .grupo(usuario.getGrupo())
                 .rol(usuario.getRol())
                 .activo(usuario.getActivo())
+                .fechaRegistro(usuario.getFechaCreacion())
                 .fechaCreacion(usuario.getFechaCreacion())
                 .fechaActualizacion(usuario.getFechaActualizacion())
                 .build();
