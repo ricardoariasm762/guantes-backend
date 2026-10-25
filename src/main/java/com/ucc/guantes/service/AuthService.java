@@ -26,6 +26,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
     private final UsuarioService usuarioService;
+    private final ProgresoService progresoService;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
@@ -38,11 +39,13 @@ public class AuthService {
                 .apellido(request.getApellido())
                 .email(request.getEmail())
                 .password(passwordEncoder.encode(request.getPassword()))
-                .rol(request.getRol() != null ? request.getRol() : Rol.ESTUDIANTE)
+                .rol(Rol.ESTUDIANTE) // Forzar rol a ESTUDIANTE en registro público
                 .activo(true)
                 .build();
 
         Usuario guardado = usuarioRepository.save(usuario);
+        progresoService.crearProgresoInicial(guardado);
+
         String token = jwtService.generateToken(guardado);
 
         return AuthResponse.builder()
@@ -54,6 +57,11 @@ public class AuthService {
                 .email(guardado.getEmail())
                 .rol(guardado.getRol())
                 .build();
+    }
+
+    @Transactional
+    public AuthResponse registrar(RegisterRequest request) {
+        return register(request);
     }
 
     public AuthResponse login(LoginRequest request) {

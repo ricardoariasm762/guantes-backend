@@ -129,7 +129,7 @@ public class ProgresoService {
         return mapToResponse(progreso);
     }
 
-    private Progreso crearProgresoInicial(Usuario usuario) {
+    public Progreso crearProgresoInicial(Usuario usuario) {
         Progreso progreso = Progreso.builder()
                 .usuario(usuario)
                 .intentosTotales(0)
