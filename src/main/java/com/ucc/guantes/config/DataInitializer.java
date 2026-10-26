@@ -40,5 +40,25 @@ public class DataInitializer implements CommandLineRunner {
         } else {
             log.info("ℹ️ Usuario ADMIN ({}) ya existe en la base de datos.", adminEmail);
         }
+
+        final String estudianteEmail = "estudiante@ucc.edu.co";
+
+        if (!usuarioRepository.existsByEmail(estudianteEmail)) {
+            Usuario estudiante = Usuario.builder()
+                    .nombre("María Camila")
+                    .apellido("Narváez")
+                    .email(estudianteEmail)
+                    .password(passwordEncoder.encode("estudiante123"))
+                    .rol(Rol.ESTUDIANTE)
+                    .semestre(5)
+                    .grupo("B-Pasto")
+                    .activo(true)
+                    .build();
+
+            usuarioRepository.save(estudiante);
+            log.info("✅ Usuario ESTUDIANTE demo creado exitosamente: {}", estudianteEmail);
+        } else {
+            log.info("ℹ️ Usuario ESTUDIANTE demo ({}) ya existe en la base de datos.", estudianteEmail);
+        }
     }
 }
