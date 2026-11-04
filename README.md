@@ -1,293 +1,118 @@
-# Backend - Herramienta Digital Interactiva para Postura de Guantes Quirúrgicos
+# Backend — Herramienta Digital Guantes (API REST)
 
-**Proyecto de Grado:** "Fortalecimiento de competencias técnicas en la postura de guantes quirúrgicos mediante el uso de una herramienta digital interactiva en estudiantes de enfermería"  
-**Institución:** Universidad Cooperativa de Colombia (UCC), Campus Pasto  
-**Programa:** Ingeniería de Software  
+> **Proyecto de Grado:** *"Fortalecimiento de competencias técnicas en la postura de guantes quirúrgicos mediante el uso de una herramienta digital interactiva en estudiantes de enfermería"*  
+> **Institución:** Universidad Cooperativa de Colombia (UCC) — Campus Pasto  
+> **Programa:** Ingeniería de Software  
 
 ---
 
-## 🛠️ Stack Tecnológico
+## 1. Pila Tecnológica
 
 - **Lenguaje:** Java 17
-- **Framework:** Spring Boot 3.2.x
-- **Seguridad:** Spring Security con autenticación stateless basada en JWT (JSON Web Tokens)
+- **Framework:** Spring Boot `4.1.1`
+- **Seguridad:** Spring Security stateless + JWT (`jjwt 0.12.6`) y control de acceso por roles (`ESTUDIANTE`, `DOCENTE`, `ADMIN`)
 - **Persistencia:** Spring Data JPA + Hibernate ORM
-- **Base de Datos:** PostgreSQL (`guantes_db`)
-- **Documentación:** OpenAPI 3 / Swagger (SpringDoc OpenAPI 2.5.x)
-- **Productividad:** Project Lombok
-- **Construcción y Dependencias:** Apache Maven Wrapper (`./mvnw`)
+- **Base de Datos:** PostgreSQL `18`
+- **Documentación OpenAPI / Swagger:** `springdoc-openapi-starter-webmvc-ui` `3.2.0`
+- **Despliegue:** Docker multi-etapa (Render en producción / Docker Compose en local)
 
 ---
 
-## 🧠 Arquitectura Híbrida IA - Reglas Clínicas
+## 2. Variables de Entorno
 
-El sistema implementa una arquitectura desacoplada donde el procesamiento de visión computacional e inteligencia artificial se ejecuta íntegramente en el navegador del usuario (**client-side**):
+La aplicación **no define contraseñas ni secretos por defecto** en `application.properties`. Al arrancar valida que `JWT_SECRET` exista y tenga una longitud mínima de **32 bytes (256 bits)**; de lo contrario detiene el inicio con un error explícito.
 
-1. **Captura y Extracción:** MediaPipe Hands captura 21 puntos anatómicos (landmarks) por mano y computa 79 características geométricas (distancias euclidianas, ángulos de articulación y ratios).
-2. **Inferencia Local:** Un modelo entrenado en TensorFlow.js clasifica la fase o etapa del protocolo quirúrgico sin transmitir video fuera del equipo cliente, garantizando privacidad total.
-3. **Mecanismo Híbrido:** Las predicciones de la red neuronal se combinan con reglas clínicas de asepsia.
-4. **Backend (Ingesta y Telemetría):** El backend almacena los resultados clínicos junto con la telemetría del modelo para fines de auditoría académica, investigación y mejora continua del algoritmo.
-
-### Clasificación de la Fuente de Decisión (`FuentePrediccion`)
-
-| Fuente | Descripción Clínica / Técnica |
-| :--- | :--- |
-| `IA` | La decisión provino principalmente del clasificador de Machine Learning (TensorFlow.js). |
-| `REGLAS` | Prevalecieron las reglas deterministas de técnica aséptica (inferido automáticamente cuando la confianza es < 0.60). |
-| `CONSENSO` | Ambas fuentes (IA y reglas clínicas) coincidieron plenamente (inferido automáticamente cuando la confianza es $\ge$ 0.80). |
-| `MIXTO` | Conflicto entre la IA y las reglas resuelto por prioridad heurística (inferido automáticamente cuando la confianza está entre 0.60 y 0.80). |
-
----
-
-## 🗄️ Modelo de Datos y Esquema
-
-### 1. Entidad `IntentoPractica` (Tabla `intentos_practica`)
-
-Campos de metadatos de IA incorporados:
-
-| Columna | Tipo SQL | Nullable | Descripción |
-| :--- | :--- | :---: | :--- |
-| `confianza_promedio` | `DOUBLE PRECISION` | Sí | Valor normalizado entre 0.0 y 1.0 de la certeza promedio del modelo durante la práctica. |
-| `fuente_prediccion` | `VARCHAR(20)` | Sí | Enum (`IA`, `REGLAS`, `CONSENSO`, `MIXTO`). |
-| `version_modelo` | `VARCHAR(50)` | Sí | Identificador de la versión del modelo TF.js empleada (ej: `v1.0-2026-10`). |
-| `detalle_ia` | `TEXT` | Sí | JSON serializado con métricas detalladas por landmark, fase y tiempo. |
-
-### 2. Entidad `ModeloIA` (Tabla `modelos_ia`)
-
-Tabla dedicada al control y auditoría de versiones del modelo:
-
-| Columna | Tipo SQL | Restricción | Descripción |
-| :--- | :--- | :---: | :--- |
-| `id` | `BIGSERIAL` | PRIMARY KEY | Identificador único autoincremental. |
-| `version` | `VARCHAR(50)` | UNIQUE, NOT NULL | Tag o código de versión del modelo. |
-| `accuracy` | `DOUBLE PRECISION` | NOT NULL | Métrica de exactitud global (entre 0.0 y 1.0). |
-| `num_clases` | `INTEGER` | NOT NULL | Cantidad de clases o pasos clasificados. |
-| `num_muestras` | `INTEGER` | NOT NULL | Cantidad de muestras de entrenamiento utilizadas. |
-| `fecha_entrenamiento` | `TIMESTAMP` | NOT NULL | Fecha y hora de entrenamiento / registro. |
-| `descripcion` | `TEXT` | Nullable | Notas técnicas de la arquitectura o hiperparámetros. |
-| `activo` | `BOOLEAN` | Default `false` | Indica si es la versión activa para los clientes frontend. |
-
----
-
-## 🔄 Estrategia de Migración de Base de Datos
-
-### Modo Automático (Desarrollo)
-La aplicación cuenta con:
-```properties
-spring.jpa.hibernate.ddl-auto=update
-```
-Hibernate alterará la tabla `intentos_practica` para añadir las columnas nullable y creará la nueva tabla `modelos_ia` al iniciar la aplicación.
-
-### Modo Versionado (Producción / Alternativa Flyway o Liquibase)
-Si se desea realizar la migración mediante scripts SQL versionados en PostgreSQL:
-
-```sql
--- 1. Ampliar intentos_practica con campos de telemetría de IA
-ALTER TABLE intentos_practica
-    ADD COLUMN IF NOT EXISTS confianza_promedio DOUBLE PRECISION,
-    ADD COLUMN IF NOT EXISTS fuente_prediccion VARCHAR(20),
-    ADD COLUMN IF NOT EXISTS version_modelo VARCHAR(50),
-    ADD COLUMN IF NOT EXISTS detalle_ia TEXT;
-
--- 2. Crear tabla de versiones de modelo
-CREATE TABLE IF NOT EXISTS modelos_ia (
-    id BIGSERIAL PRIMARY KEY,
-    version VARCHAR(50) NOT NULL UNIQUE,
-    accuracy DOUBLE PRECISION NOT NULL,
-    num_clases INTEGER NOT NULL,
-    num_muestras INTEGER NOT NULL,
-    fecha_entrenamiento TIMESTAMP NOT NULL,
-    descripcion TEXT,
-    activo BOOLEAN DEFAULT FALSE
-);
-```
-
----
-
-## 👤 Usuario Administrador Inicial
-
-La clase `DataInitializer` verifica la existencia del usuario administrador al arrancar. Si no existe, lo crea automáticamente:
-
-- **Email:** `admin@ucc.edu.co`
-- **Contraseña temporal:** `admin123456`
-- **Rol:** `ADMIN` (`ROLE_ADMIN`)
-
-> ⚠️ **Importante:** Cambiar la contraseña en el primer inicio en entornos de producción.
-
----
-
-## 🚀 Catálogo de Endpoints de Inteligencia Artificial
-
-Todos los endpoints protegidos requieren el encabezado `Authorization: Bearer <TOKEN_JWT>`.
-
-| Método | Endpoint | Rol Requerido | Descripción |
-| :---: | :--- | :---: | :--- |
-| `POST` | `/api/ia/version` | `ADMIN` | Registra una nueva versión de modelo y gestiona la activación atómica. |
-| `GET` | `/api/ia/version/activa` | Autenticado | Retorna la versión del modelo activa para sincronización del frontend. |
-| `GET` | `/api/ia/versiones` | `ADMIN` | Lista todas las versiones de modelos registradas. |
-| `GET` | `/api/ia/estadisticas` | Autenticado | Obtiene métricas globales de adopción, confianza y volumen de IA. |
-
----
-
-## 📄 Ejemplos de Petición y Respuesta
-
-### 1. Registrar Intento con Metadatos de IA
-
-**`POST /api/intentos`**
-
-```json
-{
-  "modoPractica": "GUIADO",
-  "puntaje": 96.5,
-  "duracionSegundos": 115,
-  "completado": true,
-  "observaciones": "Excelente técnica de tracción de manga quirúrgica",
-  "confianzaPromedio": 0.88,
-  "fuentePrediccion": "CONSENSO",
-  "versionModelo": "v1.0-2026-10",
-  "detalleIA": "{\"detecciones\":[{\"paso\":1,\"confianza\":0.92},{\"paso\":2,\"confianza\":0.84}]}",
-  "pasos": [
-    {
-      "numeroPaso": 1,
-      "nombrePaso": "Apertura del paquete estéril",
-      "descripcion": "Verificación de esterilidad y apertura sin contaminación",
-      "exitoso": true,
-      "tiempoSegundos": 20,
-      "precision": 0.95
-    }
-  ]
-}
-```
-
-**Respuesta (`201 CREATED`):**
-
-```json
-{
-  "id": 42,
-  "usuarioId": 5,
-  "usuarioNombre": "Carlos Mendoza",
-  "usuarioEmail": "carlos.mendoza@campusucc.edu.co",
-  "modoPractica": "GUIADO",
-  "fechaInicio": "2026-10-12T16:20:00",
-  "fechaFin": "2026-10-12T16:21:55",
-  "puntaje": 96.5,
-  "duracionSegundos": 115,
-  "completado": true,
-  "observaciones": "Excelente técnica de tracción de manga quirúrgica",
-  "confianzaPromedio": 0.88,
-  "fuentePrediccion": "CONSENSO",
-  "versionModelo": "v1.0-2026-10",
-  "detalleIA": "{\"detecciones\":[{\"paso\":1,\"confianza\":0.92},{\"paso\":2,\"confianza\":0.84}]}",
-  "pasos": [
-    {
-      "id": 180,
-      "numeroPaso": 1,
-      "nombrePaso": "Apertura del paquete estéril",
-      "descripcion": "Verificación de esterilidad y apertura sin contaminación",
-      "exitoso": true,
-      "tiempoSegundos": 20,
-      "precision": 0.95,
-      "observacionesError": null,
-      "fechaHora": "2026-10-12T16:20:20"
-    }
-  ]
-}
-```
-
----
-
-### 2. Registrar Versión de Modelo (Rol ADMIN)
-
-**`POST /api/ia/version`**
-
-```json
-{
-  "version": "v1.0-2026-10",
-  "accuracy": 0.945,
-  "numClases": 6,
-  "numMuestras": 15200,
-  "descripcion": "Modelo TF.js entrenado con arquitectura densa sobre 79 features de landmarks de MediaPipe Hands",
-  "activo": true
-}
-```
-
-**Respuesta (`201 CREATED`):**
-
-```json
-{
-  "id": 1,
-  "version": "v1.0-2026-10",
-  "accuracy": 0.945,
-  "numClases": 6,
-  "numMuestras": 15200,
-  "fechaEntrenamiento": "2026-10-12T16:15:30",
-  "descripcion": "Modelo TF.js entrenado con arquitectura densa sobre 79 features de landmarks de MediaPipe Hands",
-  "activo": true
-}
-```
-
----
-
-### 3. Consultar Versión Activa
-
-**`GET /api/ia/version/activa`**
-
-**Respuesta (`200 OK`):**
-
-```json
-{
-  "id": 1,
-  "version": "v1.0-2026-10",
-  "accuracy": 0.945,
-  "numClases": 6,
-  "numMuestras": 15200,
-  "fechaEntrenamiento": "2026-10-12T16:15:30",
-  "descripcion": "Modelo TF.js entrenado con arquitectura densa sobre 79 features de landmarks de MediaPipe Hands",
-  "activo": true
-}
-```
-
----
-
-### 4. Consultar Estadísticas Agregadas de IA
-
-**`GET /api/ia/estadisticas`**
-
-**Respuesta (`200 OK`):**
-
-```json
-{
-  "confianzaPromedioGlobal": 0.865,
-  "totalIntentosConIA": 142,
-  "totalIntentosTotales": 180,
-  "tasaUsoIA": 0.789
-}
-```
-
----
-
-## 🧪 Pruebas Automatizadas
-
-Para compilar y ejecutar la suite completa de pruebas:
+Copia `.env.example` a `.env` para configurar la ejecución local:
 
 ```bash
-# Compilar proyecto
-./mvnw clean compile
-
-# Ejecutar pruebas unitarias y de integración
-./mvnw test
+cp .env.example .env
 ```
 
-Resultados incluidos en la suite de pruebas:
-- `ModeloIAServiceTest`: Pruebas del ciclo de vida del modelo, unicidad de versión y estadísticas agregadas.
-- `IntentoServiceTest`: Pruebas de persistencia de intentos, compatibilidad hacia atrás y reglas heurísticas automáticas de `FuentePrediccion`.
-- `ModeloIAControllerTest`: Pruebas de integración HTTP MockMvc con verificación de esquemas, códigos de respuesta (200, 201, 400, 404) y restricciones de seguridad `@PreAuthorize`.
+| Variable | Obligatoria | Valor por defecto | Descripción |
+| :--- | :---: | :--- | :--- |
+| `SPRING_DATASOURCE_URL` | No | `jdbc:postgresql://localhost:5432/guantes_db` | Cadena JDBC de conexión a PostgreSQL 18. |
+| `SPRING_DATASOURCE_USERNAME` | No | `postgres` | Usuario de la base de datos. |
+| `SPRING_DATASOURCE_PASSWORD` | **Sí** | *(ninguno)* | Contraseña del usuario de PostgreSQL. |
+| `JWT_SECRET` | **Sí** | *(ninguno)* | Clave secreta HMAC-SHA para firmar tokens JWT (**mínimo 32 bytes**). |
+| `CORS_ALLOWED_ORIGINS` | No | `http://localhost:5173` | Lista de orígenes permitidos separados por coma (en Render: URL de Vercel). No admite `*` porque `allowCredentials=true`. |
+| `ADMIN_EMAIL` | Opcional | *(vacío)* | Correo del administrador inicial sembrado por `DataInitializer` si aún no existe. |
+| `ADMIN_PASSWORD` | Opcional | *(vacío)* | Contraseña del administrador inicial. Si falta `ADMIN_EMAIL` o `ADMIN_PASSWORD`, no se crea el usuario y se registra una advertencia en el log. |
+| `PORT` | No | `8080` | Puerto HTTP de escucha del servidor embebido. |
 
 ---
 
-## 📚 Documentación Interactiva (Swagger / OpenAPI)
+## 3. Perfiles de Configuración
 
-Con el backend en ejecución, accede a la interfaz gráfica interactiva de Swagger:
+1. **Perfil por defecto (`application.properties`):** Pensado para producción (Render) y contenedores Docker. Lee todas las credenciales exclusivamente desde variables de entorno.
+2. **Perfil de desarrollo local (`dev`):**
+   - Copia `src/main/resources/application-dev.properties.example` a `src/main/resources/application-dev.properties` (este último está ignorado en `.gitignore`) y ajusta tus credenciales locales.
+   - Ejecuta con Maven activando el perfil `dev`:
+     ```bash
+     ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
+     ```
+3. **Configuración de pruebas (`src/test/resources/application.properties`):** Provee propiedades aisladas exclusivas para la suite automatizada de modo que `./mvnw test` funcione sin variables de entorno externas.
 
-- **Swagger UI:** [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
-- **Especificación OpenAPI (JSON):** [http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
+---
+
+## 4. Ejecución Local con Docker (Un Solo Comando)
+
+El repositorio incluye un archivo `docker-compose.yml` que levanta **PostgreSQL 18** (`postgres:18-alpine` con *healthcheck*) y compila/ejecuta la **API** automáticamente:
+
+```bash
+# Opcional: personalizar variables copiando .env.example a .env
+cp .env.example .env
+
+# Levantar PostgreSQL 18 + API Spring Boot en http://localhost:8080
+docker compose up --build
+```
+
+Para detener los servicios conservando los datos del volumen:
+
+```bash
+docker compose down
+```
+
+---
+
+## 5. Documentación Interactiva (Swagger / OpenAPI)
+
+Con la API en ejecución, la documentación OpenAPI 3 es accesible públicamente sin token:
+
+- **Swagger UI:** `http://localhost:8080/swagger-ui.html`
+- **Especificación JSON:** `http://localhost:8080/v3/api-docs`
+- **Especificación YAML:** `http://localhost:8080/v3/api-docs.yaml`
+
+Para probar endpoints protegidos desde Swagger UI:
+1. Ejecuta `POST /api/auth/login` y copia el campo `token` de la respuesta.
+2. Haz clic en el botón **Authorize** (esquema `bearerAuth` JWT), pega el token y confirma.
+
+---
+
+## 6. Comandos de Prueba
+
+```bash
+# En Linux / macOS:
+./mvnw test
+
+# En Windows (PowerShell / CMD):
+.\mvnw.cmd test
+```
+
+La suite verifica:
+- Validación de longitud mínima de `JWT_SECRET` (`JwtServiceTest`).
+- Restricción de orígenes CORS y rechazo de orígenes no autorizados (`CorsConfigTest`).
+- Creación condicional del administrador inicial desde variables de entorno (`DataInitializerTest`).
+- Exposición pública de `/v3/api-docs` y `/swagger-ui.html` con esquema `bearerAuth` en Spring Boot 4.1 (`OpenApiIntegrationTest`).
+- Servicios y controladores de autenticación, usuarios, intentos y modelos de IA.
+
+---
+
+## 7. Resumen de Endpoints Principales
+
+| Grupo | Ruta Base | Acceso | Descripción |
+| :--- | :--- | :--- | :--- |
+| **Autenticación** | `/api/auth/register`, `/api/auth/login`, `/api/auth/perfil` | Público / Autenticado | Registro, emisión de JWT y consulta de perfil actual. |
+| **Intentos de Práctica** | `/api/intentos` | Autenticado (`GET /api/intentos` solo `DOCENTE` y `ADMIN`) | Registro de sesiones, telemetría de IA e historial por estudiante. |
+| **Progreso** | `/api/progreso` | Autenticado (`POST /recalcular` solo `DOCENTE` y `ADMIN`) | Métricas acumuladas de aprendizaje, puntajes y nivel alcanzado. |
+| **Modelo IA** | `/api/ia` | Autenticado / `ADMIN` | Gestión de versiones del clasificador TensorFlow.js y estadísticas de uso. |
+| **Usuarios** | `/api/usuarios` y `/api/admin/usuarios` | `DOCENTE` / `ADMIN` | Consulta y administración integral de cuentas y roles. |
