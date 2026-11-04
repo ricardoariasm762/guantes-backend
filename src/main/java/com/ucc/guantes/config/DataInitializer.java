@@ -5,13 +5,14 @@ import com.ucc.guantes.model.Usuario;
 import com.ucc.guantes.repository.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 /**
  * Inicializador de datos semilla al arrancar la aplicación.
- * Garantiza la existencia del usuario administrador inicial si no existe previamente.
+ * Crea el usuario administrador inicial únicamente si se proveen ADMIN_EMAIL y ADMIN_PASSWORD.
  */
 @Component
 @RequiredArgsConstructor
@@ -21,44 +22,35 @@ public class DataInitializer implements CommandLineRunner {
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
 
+    @Value("${ADMIN_EMAIL:}")
+    private String adminEmail;
+
+    @Value("${ADMIN_PASSWORD:}")
+    private String adminPassword;
+
     @Override
     public void run(String... args) {
-        final String adminEmail = "admin@ucc.edu.co";
+        String emailNormalizado = adminEmail == null ? "" : adminEmail.trim();
 
-        if (!usuarioRepository.existsByEmail(adminEmail)) {
+        if (emailNormalizado.isEmpty() || adminPassword == null || adminPassword.isBlank()) {
+            log.warn("Variables de entorno ADMIN_EMAIL o ADMIN_PASSWORD ausentes; se omite la creación del usuario ADMIN inicial.");
+            return;
+        }
+
+        if (!usuarioRepository.existsByEmail(emailNormalizado)) {
             Usuario admin = Usuario.builder()
                     .nombre("Administrador")
                     .apellido("Sistema")
-                    .email(adminEmail)
-                    .password(passwordEncoder.encode("admin123456"))
+                    .email(emailNormalizado)
+                    .password(passwordEncoder.encode(adminPassword))
                     .rol(Rol.ADMIN)
                     .activo(true)
                     .build();
 
             usuarioRepository.save(admin);
-            log.info("✅ Usuario ADMIN inicial creado exitosamente: {}", adminEmail);
+            log.info("Usuario ADMIN inicial creado exitosamente: {}", emailNormalizado);
         } else {
-            log.info("ℹ️ Usuario ADMIN ({}) ya existe en la base de datos.", adminEmail);
-        }
-
-        final String estudianteEmail = "estudiante@ucc.edu.co";
-
-        if (!usuarioRepository.existsByEmail(estudianteEmail)) {
-            Usuario estudiante = Usuario.builder()
-                    .nombre("María Camila")
-                    .apellido("Narváez")
-                    .email(estudianteEmail)
-                    .password(passwordEncoder.encode("estudiante123"))
-                    .rol(Rol.ESTUDIANTE)
-                    .semestre(5)
-                    .grupo("B-Pasto")
-                    .activo(true)
-                    .build();
-
-            usuarioRepository.save(estudiante);
-            log.info("✅ Usuario ESTUDIANTE demo creado exitosamente: {}", estudianteEmail);
-        } else {
-            log.info("ℹ️ Usuario ESTUDIANTE demo ({}) ya existe en la base de datos.", estudianteEmail);
+            log.info("Usuario ADMIN ({}) ya existe en la base de datos.", emailNormalizado);
         }
     }
 }
