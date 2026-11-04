@@ -3,6 +3,7 @@ package com.ucc.guantes.security;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
@@ -19,11 +20,29 @@ import java.util.function.Function;
 @Service
 public class JwtService {
 
-    @Value("${jwt.secret:tu_clave_secreta_muy_larga_y_segura}")
+    private static final int MIN_SECRET_BYTES = 32;
+
+    @Value("${jwt.secret}")
     private String secretKey;
 
     @Value("${jwt.expiration:86400000}")
     private long jwtExpiration;
+
+    @PostConstruct
+    public void validarConfiguracion() {
+        if (secretKey == null || secretKey.isBlank()) {
+            throw new IllegalStateException(
+                    "Configuración inválida: JWT_SECRET es obligatorio y no puede estar vacío."
+            );
+        }
+        int longitudBytes = secretKey.getBytes(StandardCharsets.UTF_8).length;
+        if (longitudBytes < MIN_SECRET_BYTES) {
+            throw new IllegalStateException(
+                    "Configuración inválida: JWT_SECRET debe tener al menos "
+                            + MIN_SECRET_BYTES + " bytes (longitud actual: " + longitudBytes + " bytes)."
+            );
+        }
+    }
 
     public String extractUsername(String token) {
         return extractClaim(token, Claims::getSubject);

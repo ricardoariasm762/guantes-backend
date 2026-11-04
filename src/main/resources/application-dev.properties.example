@@ -1,0 +1,13 @@
+# Plantilla de configuración para desarrollo local (perfil "dev")
+# Copia este archivo como src/main/resources/application-dev.properties
+# y ajusta los valores locales. Nunca subas application-dev.properties a Git.
+
+spring.datasource.url=jdbc:postgresql://localhost:5432/guantes_db
+spring.datasource.username=usuario_local_ejemplo
+spring.datasource.password=reemplazar_por_contrasena_local
+
+# Debe tener al menos 32 bytes (256 bits)
+jwt.secret=reemplazar_por_secreto_jwt_local_de_al_menos_32_bytes_seguros
+jwt.expiration=86400000
+
+app.cors.allowed-origins=http://localhost:5173
