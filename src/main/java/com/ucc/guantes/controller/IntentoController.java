@@ -4,6 +4,7 @@ import com.ucc.guantes.dto.intento.IntentoRequest;
 import com.ucc.guantes.dto.intento.IntentoResponse;
 import com.ucc.guantes.service.IntentoService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -19,13 +20,14 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/intentos")
 @RequiredArgsConstructor
-@Tag(name = "Intentos de Práctica", description = "Endpoints para registrar sesiones de práctica y consultar el historial")
+@Tag(name = "Intentos de Práctica", description = "Endpoints para registrar sesiones de práctica de postura de guantes estériles y consultar el historial")
+@SecurityRequirement(name = "bearerAuth")
 public class IntentoController {
 
     private final IntentoService intentoService;
 
     @PostMapping
-    @Operation(summary = "Registrar intento de práctica", description = "Guarda una nueva sesión de práctica con los guantes y sus pasos completados")
+    @Operation(summary = "Registrar intento de práctica", description = "Guarda una nueva sesión de práctica de postura de guantes quirúrgicos y el resultado de sus pasos")
     public ResponseEntity<IntentoResponse> registrarIntento(
             @Valid @RequestBody IntentoRequest request,
             @AuthenticationPrincipal UserDetails userDetails

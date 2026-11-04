@@ -18,15 +18,14 @@ public class OpenApiConfig {
         final String securitySchemeName = "bearerAuth";
         return new OpenAPI()
                 .info(new Info()
-                        .title("API Guantes de Práctica - UCC")
+                        .title("API Herramienta Digital Guantes - UCC")
                         .version("1.0.0")
-                        .description("Backend para el sistema de guantes hápticos / sensores de práctica - Universidad Cooperativa de Colombia")
+                        .description("API REST para el simulador web de práctica y evaluación de postura de guantes quirúrgicos estériles - Universidad Cooperativa de Colombia, Campus Pasto")
                         .contact(new Contact()
-                                .name("Proyecto de Grado UCC")
+                                .name("Proyecto de Grado Ingeniería de Software - UCC Pasto")
                                 .email("soporte.guantes@ucc.edu.co"))
                         .license(new License()
-                                .name("Apache 2.0")
-                                .url("https://springdoc.org")))
+                                .name("Todos los derechos reservados – Universidad Cooperativa de Colombia y el autor, 2026")))
                 .addSecurityItem(new SecurityRequirement().addList(securitySchemeName))
                 .components(new Components()
                         .addSecuritySchemes(securitySchemeName,
@@ -34,6 +33,7 @@ public class OpenApiConfig {
                                         .name(securitySchemeName)
                                         .type(SecurityScheme.Type.HTTP)
                                         .scheme("bearer")
-                                        .bearerFormat("JWT")));
+                                        .bearerFormat("JWT")
+                                        .description("Ingrese el token JWT obtenido en /api/auth/login")));
     }
 }

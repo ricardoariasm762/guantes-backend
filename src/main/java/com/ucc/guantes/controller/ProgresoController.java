@@ -3,6 +3,7 @@ package com.ucc.guantes.controller;
 import com.ucc.guantes.dto.progreso.ProgresoResponse;
 import com.ucc.guantes.service.ProgresoService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -14,7 +15,8 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/progreso")
 @RequiredArgsConstructor
-@Tag(name = "Progreso", description = "Endpoints para el seguimiento del aprendizaje y progreso del estudiante")
+@Tag(name = "Progreso", description = "Endpoints para el seguimiento del aprendizaje y progreso acumulado del estudiante")
+@SecurityRequirement(name = "bearerAuth")
 public class ProgresoController {
 
     private final ProgresoService progresoService;
