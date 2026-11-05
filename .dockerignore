@@ -1,6 +1,8 @@
 target/
 .git/
 .gitignore
+.env*
+src/main/resources/application-dev.properties*
 .mvn/
 mvnw
 mvnw.cmd
@@ -8,3 +10,4 @@ mvnw.cmd
 HELP.md
 README.md
 *.log
+docker-compose*.yml
