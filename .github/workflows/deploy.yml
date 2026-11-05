@@ -1,0 +1,58 @@
+name: CI/CD Backend AWS
+
+on:
+  workflow_dispatch:
+  # Descomentar las siguientes lineas para activar ejecucion automatica en PR y push a main:
+  # pull_request:
+  #   branches: [main]
+  # push:
+  #   branches: [main]
+
+permissions:
+  id-token: write   # Necesario para autenticacion OIDC con AWS
+  contents: read
+
+jobs:
+  test:
+    name: Compilar y Ejecutar Pruebas
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar codigo fuente
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17 (Eclipse Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
+
+      - name: Dar permisos de ejecucion a mvnw
+        run: chmod +x ./mvnw
+
+      - name: Ejecutar pruebas unitarias de backend
+        run: ./mvnw test
+
+  deploy:
+    name: Publicar Imagen a Amazon ECR y Actualizar EC2
+    needs: test
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar codigo fuente
+        uses: actions/checkout@v4
+
+      - name: Autenticar en AWS con OIDC (Sin claves estaticas)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Dar permisos de ejecucion a scripts
+        run: chmod +x infra/aws/scripts/*.sh
+
+      - name: Ejecutar script de publicacion de backend
+        run: bash infra/aws/scripts/publicar-backend.sh
+        env:
+          STACK_NAME: ${{ vars.BACKEND_STACK_NAME || 'guantes-backend-stack' }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}

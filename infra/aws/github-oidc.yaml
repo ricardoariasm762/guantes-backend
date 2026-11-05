@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Plantilla CloudFormation para configurar AWS IAM OpenID Connect (OIDC) Provider
+  y Rol IAM para GitHub Actions sin credenciales estaticas para despliegue en AWS.
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Description: Nombre de usuario u organizacion de GitHub propietario de los repositorios.
+    Default: tu-usuario-github
+
+  FrontendRepo:
+    Type: String
+    Description: Nombre del repositorio del frontend.
+    Default: Proyectos_Guantes
+
+  BackendRepo:
+    Type: String
+    Description: Nombre del repositorio del backend.
+    Default: guantes-backend
+
+Resources:
+  # Proveedor OIDC de GitHub en IAM
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58779c0d5c879d494883909ea06148684b067f
+
+  # Rol IAM asumible unicamente desde los repositorios de GitHub en la rama main
+  GitHubActionsDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: guantes-github-actions-deploy-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOIDCProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub:
+                  - !Sub repo:${GitHubOrg}/${FrontendRepo}:ref:refs/heads/main
+                  - !Sub repo:${GitHubOrg}/${BackendRepo}:ref:refs/heads/main
+      Policies:
+        # Permisos minimos para despliegue de frontend (S3 y CloudFront)
+        - PolicyName: FrontendDeployPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - arn:aws:s3:::*guantes*
+                  - arn:aws:s3:::*guantes*/*
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                  - cloudfront:GetInvalidation
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                Resource: '*'
+
+        # Permisos minimos para despliegue de backend (ECR y SSM)
+        - PolicyName: BackendDeployPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:PutImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/guantes-backend
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                  - ssm:GetCommandInvocation
+                Resource: '*'
+
+Outputs:
+  GitHubActionsRoleArn:
+    Description: ARN del Rol IAM para configurar en el secreto AWS_ROLE_ARN de GitHub Actions
+    Value: !GetAtt GitHubActionsDeployRole.Arn
