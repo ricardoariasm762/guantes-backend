@@ -14,7 +14,8 @@
 - **Persistencia:** Spring Data JPA + Hibernate ORM
 - **Base de Datos:** PostgreSQL `18`
 - **Documentación OpenAPI / Swagger:** `springdoc-openapi-starter-webmvc-ui` `3.2.0`
-- **Despliegue:** Docker multi-etapa (Render en producción / Docker Compose en local)
+- **Métricas y Monitoreo:** `spring-boot-starter-actuator` (`/actuator/health`)
+- **Despliegue:** Docker multi-etapa en **Amazon Web Services (AWS)** sobre EC2 `t3.small` (Amazon Linux 2023), Amazon RDS PostgreSQL 18, Amazon ECR y CloudFront / Docker Compose en desarrollo local.
 
 ---
 
@@ -30,11 +31,11 @@ cp .env.example .env
 
 | Variable | Obligatoria | Valor por defecto | Descripción |
 | :--- | :---: | :--- | :--- |
-| `SPRING_DATASOURCE_URL` | No | `jdbc:postgresql://localhost:5432/guantes_db` | Cadena JDBC de conexión a PostgreSQL 18. |
-| `SPRING_DATASOURCE_USERNAME` | No | `postgres` | Usuario de la base de datos. |
-| `SPRING_DATASOURCE_PASSWORD` | **Sí** | *(ninguno)* | Contraseña del usuario de PostgreSQL. |
+| `SPRING_DATASOURCE_URL` | No | `jdbc:postgresql://localhost:5432/guantes_db` | Cadena JDBC de conexión a PostgreSQL 18 (en RDS: `sslmode=require`). |
+| `SPRING_DATASOURCE_USERNAME` | No | `postgres` | Usuario de la base de datos (`postgres` por defecto en RDS). |
+| `SPRING_DATASOURCE_PASSWORD` | **Sí** | *(ninguno)* | Contraseña del usuario de PostgreSQL (gestionada en SSM Parameter Store). |
 | `JWT_SECRET` | **Sí** | *(ninguno)* | Clave secreta HMAC-SHA para firmar tokens JWT (**mínimo 32 bytes**). |
-| `CORS_ALLOWED_ORIGINS` | No | `http://localhost:5173` | Lista de orígenes permitidos separados por coma (en Render: URL de Vercel). No admite `*` porque `allowCredentials=true`. |
+| `CORS_ALLOWED_ORIGINS` | No | `http://localhost:5173` | Lista de orígenes permitidos separados por coma (en AWS: URL de CloudFront `https://<distribucion>.cloudfront.net`). No admite `*` porque `allowCredentials=true`. |
 | `ADMIN_EMAIL` | Opcional | *(vacío)* | Correo del administrador inicial sembrado por `DataInitializer` si aún no existe. |
 | `ADMIN_PASSWORD` | Opcional | *(vacío)* | Contraseña del administrador inicial. Si falta `ADMIN_EMAIL` o `ADMIN_PASSWORD`, no se crea el usuario y se registra una advertencia en el log. |
 | `PORT` | No | `8080` | Puerto HTTP de escucha del servidor embebido. |
@@ -43,14 +44,19 @@ cp .env.example .env
 
 ## 3. Perfiles de Configuración
 
-1. **Perfil por defecto (`application.properties`):** Pensado para producción (Render) y contenedores Docker. Lee todas las credenciales exclusivamente desde variables de entorno.
-2. **Perfil de desarrollo local (`dev`):**
+1. **Perfil por defecto (`application.properties`):** Base común agnóstica del entorno. Lee credenciales exclusivamente desde variables de entorno.
+2. **Perfil de producción (`application-prod.properties` — activo en AWS con `SPRING_PROFILES_ACTIVE=prod`):**
+   - Habilita `server.forward-headers-strategy=framework` para respetar las cabeceras `X-Forwarded-*` remitidas por CloudFront.
+   - Configura el pool de conexiones HikariCP con `maximum-pool-size=5` y `minimum-idle=2` para operar eficientemente sobre `db.t4g.micro`.
+   - Mantiene `spring.jpa.hibernate.ddl-auto=update` para crear automáticamente las tablas necesarias al arrancar por primera vez en una base de datos nueva de Amazon RDS.
+   - Expone únicamente el indicador de salud `/actuator/health` sin mostrar detalles de componentes (`never`).
+3. **Perfil de desarrollo local (`dev`):**
    - Copia `src/main/resources/application-dev.properties.example` a `src/main/resources/application-dev.properties` (este último está ignorado en `.gitignore`) y ajusta tus credenciales locales.
    - Ejecuta con Maven activando el perfil `dev`:
      ```bash
      ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
      ```
-3. **Configuración de pruebas (`src/test/resources/application.properties`):** Provee propiedades aisladas exclusivas para la suite automatizada de modo que `./mvnw test` funcione sin variables de entorno externas.
+4. **Configuración de pruebas (`src/test/resources/application.properties`):** Provee propiedades aisladas con base de datos H2 en memoria exclusivas para la suite automatizada de modo que `./mvnw test` funcione sin variables de entorno externas.
 
 ---
 
@@ -116,3 +122,52 @@ La suite verifica:
 | **Progreso** | `/api/progreso` | Autenticado (`POST /recalcular` solo `DOCENTE` y `ADMIN`) | Métricas acumuladas de aprendizaje, puntajes y nivel alcanzado. |
 | **Modelo IA** | `/api/ia` | Autenticado / `ADMIN` | Gestión de versiones del clasificador TensorFlow.js y estadísticas de uso. |
 | **Usuarios** | `/api/usuarios` y `/api/admin/usuarios` | `DOCENTE` / `ADMIN` | Consulta y administración integral de cuentas y roles. |
+
+---
+
+## 8. Despliegue en AWS (EC2 + RDS + ECR + CloudFront)
+
+La API REST se despliega en **Amazon Web Services (AWS)** bajo una arquitectura segura, reproducible y de costo mínimo:
+
+- **Instancia EC2 `t3.small` (Amazon Linux 2023):** Ejecuta el contenedor Docker de Spring Boot bajo el servicio systemd `guantes-backend.service`.
+  - **Seguridad perimetral:** El puerto `8080` está restringido estrictamente al rango de IP de CloudFront (`com.amazonaws.global.cloudfront.origin-facing`).
+  - **Sin puerto 22 SSH expuesto:** Toda la administración, despliegue y lectura de logs se efectúa mediante **AWS Systems Manager (SSM) Session Manager**.
+- **Amazon RDS PostgreSQL 18 (`db.t4g.micro`):** Instancia de base de datos relacional privada (`PubliclyAccessible=false`), con almacenamiento cifrado KMS (20 GB gp3) y copias de seguridad automatizadas por 7 días. Su grupo de seguridad restringe el puerto `5432` exclusivamente al Security Group de la instancia EC2.
+- **Amazon ECR (`guantes-backend`):** Registro privado de imágenes Docker con escaneo automatizado de vulnerabilidades en push y política de retención de las últimas 10 imágenes.
+- **AWS Systems Manager Parameter Store:** Almacenamiento seguro (`SecureString` KMS) de `JWT_SECRET`, contraseñas y configuración de CORS.
+
+Para el procedimiento completo de despliegue, ejecución de scripts de automatización y resolución de dudas para el jurado, consulta:
+👉 **[Guía Integral de Despliegue en AWS (DESPLIEGUE_AWS.md)](file:///c:/Proyecto_grado/Proyectos_Guantes/docs/despliegue/DESPLIEGUE_AWS.md)**.
+
+Los scripts de automatización se ubican en `infra/aws/scripts/`:
+- `crear-secretos.ps1` / `.sh`: Inicializa los parámetros en SSM Parameter Store.
+- `desplegar-infra-backend.ps1` / `.sh`: Despliega la plantilla CloudFormation `backend.yaml`.
+- `publicar-backend.ps1` / `.sh`: Compila la imagen Docker, la publica en ECR y reinicia el servicio en EC2.
+- `logs-backend.ps1` / `.sh`: Transmite los logs de Spring Boot en tiempo real a través de SSM.
+
+---
+
+## 9. Estructura de Carpetas
+
+```text
+guantes-backend/
+├── .github/
+│   └── workflows/                # Flujo de despliegue continuo (deploy.yml con OIDC)
+├── infra/
+│   └── aws/
+│       ├── backend.yaml          # Infraestructura como Código (ECR + EC2 + RDS + IAM + SG)
+│       ├── github-oidc.yaml      # Configuración de IAM OIDC para GitHub Actions
+│       └── scripts/              # Scripts de automatización (PowerShell y Bash)
+├── src/
+│   ├── main/
+│   │   ├── java/com/ucc/guantes/ # Código fuente (controladores, servicios, modelos, seguridad)
+│   │   └── resources/
+│   │       ├── application.properties      # Configuración común
+│   │       └── application-prod.properties # Configuración de producción para AWS
+│   └── test/
+│       └── java/com/ucc/guantes/ # Suite de pruebas automatizadas (Maven / JUnit 5)
+├── Dockerfile                    # Construcción multi-etapa JRE 17 con non-root user y healthcheck
+├── docker-compose.yml            # Entorno local PostgreSQL 18 + API
+└── pom.xml                       # Dependencias del proyecto Maven (Spring Boot 4.1.1)
+```
+
