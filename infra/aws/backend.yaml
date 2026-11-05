@@ -1,0 +1,334 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Infraestructura de Backend en AWS para Herramienta Digital Guantes Quirurgicos (UCC).
+  Crea repositorio ECR, instancia EC2 t3.small (Amazon Linux 2023) con Docker y SSM,
+  base de datos RDS PostgreSQL 18 (db.t4g.micro) privada y grupos de seguridad con
+  acceso restringido a CloudFront Origin-Facing.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: ID de la VPC (por defecto o personalizada) donde se desplegaran los recursos.
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Lista de al menos 2 subredes en distintas zonas de disponibilidad para RDS y EC2.
+
+  CloudFrontPrefixListId:
+    Type: String
+    Description: >
+      ID de la lista de prefijos administrada com.amazonaws.global.cloudfront.origin-facing
+      obtenida dinamicamente mediante AWS CLI.
+
+  DbEngineVersion:
+    Type: String
+    Default: '18.1'
+    Description: Version del motor PostgreSQL en Amazon RDS.
+
+  DbInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    Description: Tipo de instancia para RDS PostgreSQL (arquitectura Graviton economica).
+
+  DbAllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+    MaxValue: 100
+    Description: Almacenamiento asignado a la base de datos en GB (gp3).
+
+  DbDeletionProtection:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Activar proteccion contra eliminacion accidental de RDS.
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Resolucion automatica de la ultima AMI de Amazon Linux 2023 x86_64.
+
+Resources:
+  # =========================================================================
+  # 1. Repositorio Amazon ECR
+  # =========================================================================
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: guantes-backend
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Conservar solo las ultimas 10 imagenes",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      Tags:
+        - Key: Proyecto
+          Value: GuantesQuirurgicos
+        - Key: Entorno
+          Value: Produccion
+
+  # =========================================================================
+  # 2. Grupos de Seguridad (EC2 y RDS)
+  # =========================================================================
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Grupo de seguridad EC2 - puerto 8080 restringido a CloudFront Origin-Facing
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: Trafico HTTP desde la lista de prefijos administrada de CloudFront
+          IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourcePrefixListId: !Ref CloudFrontPrefixListId
+      SecurityGroupEgress:
+        - Description: Permitir todo el trafico saliente (HTTPS, ECR, SSM, RDS)
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: guantes-backend-ec2-sg
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Grupo de seguridad RDS - PostgreSQL 5432 solo desde grupo de seguridad EC2
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: Acceso PostgreSQL unicamente desde la instancia EC2 del backend
+          IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref EC2SecurityGroup
+      SecurityGroupEgress:
+        - Description: Trafico saliente de base de datos
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: guantes-backend-rds-sg
+
+  # =========================================================================
+  # 3. Base de Datos Amazon RDS PostgreSQL 18
+  # =========================================================================
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Grupo de subredes para RDS PostgreSQL en la VPC
+      SubnetIds: !Ref SubnetIds
+      Tags:
+        - Key: Name
+          Value: guantes-backend-db-subnet-group
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: guantes-backend-db
+      Engine: postgres
+      EngineVersion: !Ref DbEngineVersion
+      DBInstanceClass: !Ref DbInstanceClass
+      AllocatedStorage: !Ref DbAllocatedStorage
+      StorageType: gp3
+      StorageEncrypted: true
+      PubliclyAccessible: false
+      MultiAZ: false
+      AutoMinorVersionUpgrade: true
+      BackupRetentionPeriod: 7
+      DeletionProtection: !Ref DbDeletionProtection
+      DBName: guantes_db
+      MasterUsername: postgres
+      MasterUserPassword: '{{resolve:ssm-secure:/guantes/DB_PASSWORD}}'
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      Tags:
+        - Key: Name
+          Value: guantes-backend-rds
+
+  # =========================================================================
+  # 4. Rol IAM y Perfil de Instancia EC2
+  # =========================================================================
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: guantes-backend-ec2-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: ECRReadPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: !GetAtt ECRRepository.Arn
+        - PolicyName: SSMParameterReadPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameters
+                  - ssm:GetParameter
+                  - ssm:GetParametersByPath
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/guantes/*
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource: '*'
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: guantes-backend-instance-profile
+      Roles:
+        - !Ref EC2InstanceRole
+
+  # =========================================================================
+  # 5. Instancia EC2 t3.small con UserData
+  # =========================================================================
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.small
+      ImageId: !Ref LatestAmiId
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      SubnetId: !Select [0, !Ref SubnetIds]
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -xe
+
+          # Actualizar paquetes e instalar Docker, jq y utilidades
+          dnf update -y
+          dnf install -y docker jq awscli
+          systemctl enable --now docker
+          usermod -a -G docker ec2-user
+
+          # Crear directorio seguro para variables de entorno del backend
+          mkdir -p /etc/guantes
+          chmod 700 /etc/guantes
+
+          # Script para recuperar parametros desde SSM Parameter Store
+          cat << 'SCRIPT_EOF' > /usr/local/bin/actualizar-env-guantes.sh
+          #!/bin/bash
+          set -e
+          TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+          REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region)
+
+          PARAM_JSON=$(aws ssm get-parameters-by-path --path "/guantes" --with-decryption --region "$REGION" --output json)
+
+          JWT_SECRET=$(echo "$PARAM_JSON" | jq -r '.Parameters[] | select(.Name=="/guantes/JWT_SECRET") | .Value // empty')
+          DB_PASSWORD=$(echo "$PARAM_JSON" | jq -r '.Parameters[] | select(.Name=="/guantes/DB_PASSWORD") | .Value // empty')
+          ADMIN_PASSWORD=$(echo "$PARAM_JSON" | jq -r '.Parameters[] | select(.Name=="/guantes/ADMIN_PASSWORD") | .Value // empty')
+          CORS_ALLOWED_ORIGINS=$(echo "$PARAM_JSON" | jq -r '.Parameters[] | select(.Name=="/guantes/CORS_ALLOWED_ORIGINS") | .Value // empty')
+          ADMIN_EMAIL=$(echo "$PARAM_JSON" | jq -r '.Parameters[] | select(.Name=="/guantes/ADMIN_EMAIL") | .Value // empty')
+
+          if [ -z "$CORS_ALLOWED_ORIGINS" ]; then
+            CORS_ALLOWED_ORIGINS="http://localhost:5173"
+          fi
+
+          cat << ENV_EOF > /etc/guantes/backend.env
+          PORT=8080
+          SPRING_PROFILES_ACTIVE=prod
+          SPRING_DATASOURCE_URL=jdbc:postgresql://${RDSInstance.Endpoint.Address}:5432/guantes_db?sslmode=require
+          SPRING_DATASOURCE_USERNAME=postgres
+          SPRING_DATASOURCE_PASSWORD=$DB_PASSWORD
+          JWT_SECRET=$JWT_SECRET
+          CORS_ALLOWED_ORIGINS=$CORS_ALLOWED_ORIGINS
+          ADMIN_EMAIL=$ADMIN_EMAIL
+          ADMIN_PASSWORD=$ADMIN_PASSWORD
+          ENV_EOF
+
+          chmod 600 /etc/guantes/backend.env
+          SCRIPT_EOF
+
+          chmod 700 /usr/local/bin/actualizar-env-guantes.sh
+
+          # Ejecutar primera lectura de variables
+          /usr/local/bin/actualizar-env-guantes.sh || true
+
+          # Crear servicio systemd para gestionar el contenedor backend
+          cat << SERVICE_EOF > /etc/systemd/system/guantes-backend.service
+          [Unit]
+          Description=Servicio Contenedor Guantes Backend
+          After=docker.service
+          Requires=docker.service
+
+          [Service]
+          TimeoutStartSec=0
+          Restart=always
+          ExecStartPre=-/usr/bin/docker stop guantes-backend
+          ExecStartPre=-/usr/bin/docker rm guantes-backend
+          ExecStartPre=/usr/local/bin/actualizar-env-guantes.sh
+          ExecStartPre=/bin/bash -c "aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"
+          ExecStart=/usr/bin/docker run --name guantes-backend --env-file /etc/guantes/backend.env -p 8080:8080 --restart=always ${ECRRepository.RepositoryUri}:latest
+          ExecStop=/usr/bin/docker stop guantes-backend
+
+          [Install]
+          WantedBy=multi-user.target
+          SERVICE_EOF
+
+          systemctl daemon-reload
+          systemctl enable guantes-backend.service
+          systemctl start guantes-backend.service || true
+      Tags:
+        - Key: Name
+          Value: guantes-backend-ec2
+
+Outputs:
+  EndpointRDS:
+    Description: Endpoint DNS de conexion a la base de datos PostgreSQL en RDS
+    Value: !GetAtt RDSInstance.Endpoint.Address
+
+  DnsPublicoEC2:
+    Description: Nombre DNS publico de la instancia EC2 para configurar el origen en CloudFront
+    Value: !GetAtt EC2Instance.PublicDnsName
+
+  IdInstancia:
+    Description: ID de la instancia EC2 para gestion y despliegue por SSM
+    Value: !Ref EC2Instance
+
+  UriECR:
+    Description: URI del repositorio Amazon ECR para subir la imagen Docker
+    Value: !GetAtt ECRRepository.RepositoryUri
