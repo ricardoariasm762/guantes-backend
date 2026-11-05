@@ -1,6 +1,6 @@
 param (
     [string]$StackName = "guantes-backend-stack",
-    [string]$Region = "us-east-1",
+    [string]$Region = "us-east-2",
     [string]$VpcId = "",
     [string]$SubnetIds = ""
 )

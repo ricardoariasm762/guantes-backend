@@ -2,7 +2,7 @@
 set -e
 
 STACK_NAME="${STACK_NAME:-guantes-backend-stack}"
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-us-east-2}"
 LINES="${1:-100}"
 
 echo "=========================================================="

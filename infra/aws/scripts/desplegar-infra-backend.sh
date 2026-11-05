@@ -2,7 +2,7 @@
 set -e
 
 STACK_NAME="${STACK_NAME:-guantes-backend-stack}"
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-us-east-2}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_FILE="$(cd "$SCRIPT_DIR/.." && pwd)/backend.yaml"
 

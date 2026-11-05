@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-us-east-2}"
 echo "=========================================================="
 echo " Creacion interactiva de Secretos en AWS SSM Parameter Store"
 echo " Region: $REGION"

@@ -22,7 +22,7 @@ Parameters:
 
   DbEngineVersion:
     Type: String
-    Default: '18.1'
+    Default: '18.6'
     Description: Version del motor PostgreSQL en Amazon RDS.
 
   DbInstanceClass:
@@ -241,7 +241,7 @@ Resources:
 
           # Actualizar paquetes e instalar Docker, jq y utilidades
           dnf update -y
-          dnf install -y docker jq awscli
+          dnf install -y docker jq
           systemctl enable --now docker
           usermod -a -G docker ec2-user
 
@@ -298,11 +298,13 @@ Resources:
           [Service]
           TimeoutStartSec=0
           Restart=always
+          RestartSec=10
           ExecStartPre=-/usr/bin/docker stop guantes-backend
           ExecStartPre=-/usr/bin/docker rm guantes-backend
           ExecStartPre=/usr/local/bin/actualizar-env-guantes.sh
           ExecStartPre=/bin/bash -c "aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com"
-          ExecStart=/usr/bin/docker run --name guantes-backend --env-file /etc/guantes/backend.env -p 8080:8080 --restart=always ${ECRRepository.RepositoryUri}:latest
+          ExecStartPre=-/usr/bin/docker pull ${ECRRepository.RepositoryUri}:latest
+          ExecStart=/usr/bin/docker run --name guantes-backend --env-file /etc/guantes/backend.env -p 8080:8080 ${ECRRepository.RepositoryUri}:latest
           ExecStop=/usr/bin/docker stop guantes-backend
 
           [Install]
@@ -316,6 +318,18 @@ Resources:
         - Key: Name
           Value: guantes-backend-ec2
 
+  # =========================================================================
+  # 6. IP elastica (la direccion no cambia al detener o iniciar la instancia)
+  # =========================================================================
+  EC2ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref EC2Instance
+      Tags:
+        - Key: Name
+          Value: guantes-backend-eip
+
 Outputs:
   EndpointRDS:
     Description: Endpoint DNS de conexion a la base de datos PostgreSQL en RDS
@@ -323,7 +337,15 @@ Outputs:
 
   DnsPublicoEC2:
     Description: Nombre DNS publico de la instancia EC2 para configurar el origen en CloudFront
-    Value: !GetAtt EC2Instance.PublicDnsName
+    Value: !Join
+      - ''
+      - - 'ec2-'
+        - !Join ['-', !Split ['.', !Ref EC2ElasticIP]]
+        - !Sub '.${AWS::Region}.compute.amazonaws.com'
+
+  IpElastica:
+    Description: IP publica fija del backend
+    Value: !Ref EC2ElasticIP
 
   IdInstancia:
     Description: ID de la instancia EC2 para gestion y despliegue por SSM

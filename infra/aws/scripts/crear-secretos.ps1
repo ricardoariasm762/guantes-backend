@@ -1,5 +1,5 @@
 param (
-    [string]$Region = "us-east-1"
+    [string]$Region = "us-east-2"
 )
 
 $ErrorActionPreference = "Stop"
