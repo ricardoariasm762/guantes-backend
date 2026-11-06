@@ -57,19 +57,27 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 Write-Host "Iniciando sesion en Amazon ECR..." -ForegroundColor Yellow
 # En Windows, el administrador de credenciales (wincred) rechaza el token de ECR por su tamano
-# ("The stub received bad data"). Se usa una configuracion temporal de Docker sin credsStore.
+# ("The stub received bad data"). Docker usa wincred por defecto si config.json no tiene "auths",
+# por eso se escribe la credencial directamente en un config.json temporal (sin docker login).
+$dockerHostOriginal = $env:DOCKER_HOST
+if ([string]::IsNullOrWhiteSpace($env:DOCKER_HOST)) {
+    $hostActual = (docker context inspect --format "{{.Endpoints.docker.Host}}" 2>$null)
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($hostActual)) { $env:DOCKER_HOST = $hostActual.Trim() }
+}
 $dockerConfigOriginal = $env:DOCKER_CONFIG
 $dockerConfigTemp = Join-Path $env:TEMP "docker-ecr-guantes"
 New-Item -ItemType Directory -Force -Path $dockerConfigTemp | Out-Null
-[System.IO.File]::WriteAllText((Join-Path $dockerConfigTemp "config.json"), "{}")
-$env:DOCKER_CONFIG = $dockerConfigTemp
 try {
     $loginPass = (aws ecr get-login-password --region "$Region")
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($loginPass)) {
         Write-Host "ERROR: no se pudo obtener el token de ECR (revisa la sesion con aws login)." -ForegroundColor Red; exit 1
     }
-    $loginPass.Trim() | docker login --username AWS --password-stdin "$ecrUri"
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: docker login en ECR fallo." -ForegroundColor Red; exit 1 }
+    $registryHost = $ecrUri.Split("/")[0]
+    $authB64 = [Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes("AWS:" + $loginPass.Trim()))
+    $configJson = '{"auths":{"' + $registryHost + '":{"auth":"' + $authB64 + '"}}}'
+    [System.IO.File]::WriteAllText((Join-Path $dockerConfigTemp "config.json"), $configJson)
+    $env:DOCKER_CONFIG = $dockerConfigTemp
+    Write-Host "-> Credencial de ECR preparada para $registryHost" -ForegroundColor Green
 
     Write-Host "Publicando imagen ${ecrUri}:${commitSha}..." -ForegroundColor Yellow
     docker push "${ecrUri}:${commitSha}"
@@ -80,8 +88,8 @@ try {
     if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: docker push de latest fallo." -ForegroundColor Red; exit 1 }
 }
 finally {
-    docker logout "$ecrUri" 2>$null | Out-Null
     $env:DOCKER_CONFIG = $dockerConfigOriginal
+    $env:DOCKER_HOST = $dockerHostOriginal
     Remove-Item -Recurse -Force $dockerConfigTemp -ErrorAction SilentlyContinue
 }
 
