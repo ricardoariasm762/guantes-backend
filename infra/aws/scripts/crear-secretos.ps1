@@ -67,6 +67,7 @@ aws ssm put-parameter `
     --type "SecureString" `
     --overwrite `
     --region "$Region" | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: el comando de AWS fallo (revisa la sesion con aws login y el mensaje anterior)." -ForegroundColor Red; exit 1 }
 
 aws ssm put-parameter `
     --name "/guantes/DB_PASSWORD" `
@@ -74,6 +75,7 @@ aws ssm put-parameter `
     --type "SecureString" `
     --overwrite `
     --region "$Region" | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: el comando de AWS fallo (revisa la sesion con aws login y el mensaje anterior)." -ForegroundColor Red; exit 1 }
 
 aws ssm put-parameter `
     --name "/guantes/ADMIN_PASSWORD" `
@@ -81,6 +83,7 @@ aws ssm put-parameter `
     --type "SecureString" `
     --overwrite `
     --region "$Region" | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: el comando de AWS fallo (revisa la sesion con aws login y el mensaje anterior)." -ForegroundColor Red; exit 1 }
 
 aws ssm put-parameter `
     --name "/guantes/ADMIN_EMAIL" `
@@ -88,6 +91,7 @@ aws ssm put-parameter `
     --type "String" `
     --overwrite `
     --region "$Region" | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: el comando de AWS fallo (revisa la sesion con aws login y el mensaje anterior)." -ForegroundColor Red; exit 1 }
 
 aws ssm put-parameter `
     --name "/guantes/CORS_ALLOWED_ORIGINS" `
@@ -95,5 +99,6 @@ aws ssm put-parameter `
     --type "String" `
     --overwrite `
     --region "$Region" | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: el comando de AWS fallo (revisa la sesion con aws login y el mensaje anterior)." -ForegroundColor Red; exit 1 }
 
 Write-Host "Parametros guardados exitosamente bajo el prefijo /guantes/* en la region $Region." -ForegroundColor Green

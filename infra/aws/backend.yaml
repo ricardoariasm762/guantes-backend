@@ -20,6 +20,13 @@ Parameters:
       ID de la lista de prefijos administrada com.amazonaws.global.cloudfront.origin-facing
       obtenida dinamicamente mediante AWS CLI.
 
+  DbBackupRetentionDays:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    MaxValue: 35
+    Description: Dias de copias automaticas de RDS. El plan gratuito de AWS limita este valor; con plan de pago se recomiendan 7.
+
   DbEngineVersion:
     Type: String
     Default: '18.6'
@@ -150,7 +157,7 @@ Resources:
       PubliclyAccessible: false
       MultiAZ: false
       AutoMinorVersionUpgrade: true
-      BackupRetentionPeriod: 7
+      BackupRetentionPeriod: !Ref DbBackupRetentionDays
       DeletionProtection: !Ref DbDeletionProtection
       DBName: guantes_db
       MasterUsername: postgres
