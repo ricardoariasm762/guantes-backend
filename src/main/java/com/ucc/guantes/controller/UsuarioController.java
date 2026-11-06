@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.parameters.P;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -32,8 +33,9 @@ public class UsuarioController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','DOCENTE') or @autorizacion.esUsuarioActual(#id)")
     @Operation(summary = "Obtener usuario por ID", description = "Retorna los detalles de un usuario específico")
-    public ResponseEntity<UsuarioResponse> obtenerPorId(@PathVariable Long id) {
+    public ResponseEntity<UsuarioResponse> obtenerPorId(@PathVariable("id") @P("id") Long id) {
         return ResponseEntity.ok(usuarioService.obtenerPorId(id));
     }
 
@@ -46,9 +48,10 @@ public class UsuarioController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @autorizacion.esUsuarioActual(#id)")
     @Operation(summary = "Actualizar usuario", description = "Actualiza los datos de un usuario existente")
     public ResponseEntity<UsuarioResponse> actualizar(
-            @PathVariable Long id,
+            @PathVariable("id") @P("id") Long id,
             @Valid @RequestBody UsuarioRequest request
     ) {
         return ResponseEntity.ok(usuarioService.actualizar(id, request));

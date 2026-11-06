@@ -12,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.parameters.P;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
@@ -47,14 +48,14 @@ public class IntentoController {
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN','DOCENTE') or @autorizacion.esDuenoDelIntento(#id)")
     @Operation(summary = "Obtener intento por ID", description = "Retorna el detalle completo de un intento de práctica incluyendo los pasos")
-    public ResponseEntity<IntentoResponse> obtenerPorId(@PathVariable Long id) {
+    public ResponseEntity<IntentoResponse> obtenerPorId(@PathVariable("id") @P("id") Long id) {
         return ResponseEntity.ok(intentoService.obtenerPorId(id));
     }
 
     @GetMapping("/usuario/{usuarioId}")
     @PreAuthorize("hasAnyRole('ADMIN','DOCENTE') or @autorizacion.esUsuarioActual(#usuarioId)")
     @Operation(summary = "Listar intentos por usuario", description = "Obtiene todos los intentos de práctica de un usuario específico")
-    public ResponseEntity<List<IntentoResponse>> listarPorUsuario(@PathVariable Long usuarioId) {
+    public ResponseEntity<List<IntentoResponse>> listarPorUsuario(@PathVariable("usuarioId") @P("usuarioId") Long usuarioId) {
         return ResponseEntity.ok(intentoService.listarPorUsuario(usuarioId));
     }
 
@@ -68,7 +69,7 @@ public class IntentoController {
     @PreAuthorize("hasAnyRole('ADMIN','DOCENTE') or @autorizacion.esDuenoDelIntento(#id)")
     @Operation(summary = "Eliminar intento de práctica", description = "Elimina un intento registrado y recalcula automáticamente las estadísticas de progreso")
     public ResponseEntity<Void> eliminarIntento(
-            @PathVariable Long id,
+            @PathVariable("id") @P("id") Long id,
             @AuthenticationPrincipal UserDetails userDetails
     ) {
         intentoService.eliminarIntento(id, userDetails != null ? userDetails.getUsername() : null);

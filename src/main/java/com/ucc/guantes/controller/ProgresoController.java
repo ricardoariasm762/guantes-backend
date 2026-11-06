@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.parameters.P;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
@@ -28,8 +29,9 @@ public class ProgresoController {
     }
 
     @GetMapping("/usuario/{usuarioId}")
+    @PreAuthorize("hasAnyRole('ADMIN','DOCENTE') or @autorizacion.esUsuarioActual(#usuarioId)")
     @Operation(summary = "Obtener progreso de un usuario", description = "Retorna el resumen de desempeño de un estudiante específico")
-    public ResponseEntity<ProgresoResponse> obtenerPorUsuario(@PathVariable Long usuarioId) {
+    public ResponseEntity<ProgresoResponse> obtenerPorUsuario(@PathVariable("usuarioId") @P("usuarioId") Long usuarioId) {
         return ResponseEntity.ok(progresoService.obtenerProgresoPorUsuario(usuarioId));
     }
 

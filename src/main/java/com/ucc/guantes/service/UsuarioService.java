@@ -9,6 +9,8 @@ import com.ucc.guantes.model.Rol;
 import com.ucc.guantes.model.Usuario;
 import com.ucc.guantes.repository.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -83,25 +85,31 @@ public class UsuarioService {
         Usuario usuario = usuarioRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario", "id", id));
 
-        if (!usuario.getEmail().equalsIgnoreCase(request.getEmail()) && usuarioRepository.existsByEmail(request.getEmail())) {
-            throw new BadRequestException("El email ya se encuentra en uso por otro usuario: " + request.getEmail());
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        boolean esNoAdmin = auth != null && auth.isAuthenticated() && !"anonymousUser".equals(auth.getPrincipal())
+                && auth.getAuthorities().stream().noneMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()) || "ADMIN".equals(a.getAuthority()));
+
+        if (!esNoAdmin) {
+            if (request.getEmail() != null && !usuario.getEmail().equalsIgnoreCase(request.getEmail()) && usuarioRepository.existsByEmail(request.getEmail())) {
+                throw new BadRequestException("El email ya se encuentra en uso por otro usuario: " + request.getEmail());
+            }
+            if (request.getEmail() != null && !request.getEmail().isBlank()) {
+                usuario.setEmail(request.getEmail());
+            }
+            if (request.getRol() != null) {
+                usuario.setRol(request.getRol());
+            }
+            if (request.getActivo() != null) {
+                usuario.setActivo(request.getActivo());
+            }
         }
 
         usuario.setNombre(request.getNombre());
         if (request.getApellido() != null) {
             usuario.setApellido(request.getApellido());
         }
-        usuario.setEmail(request.getEmail());
         usuario.setSemestre(request.getSemestre());
         usuario.setGrupo(request.getGrupo());
-
-        if (request.getRol() != null) {
-            usuario.setRol(request.getRol());
-        }
-
-        if (request.getActivo() != null) {
-            usuario.setActivo(request.getActivo());
-        }
 
         if (request.getPassword() != null && !request.getPassword().trim().isEmpty()) {
             usuario.setPassword(passwordEncoder.encode(request.getPassword()));
