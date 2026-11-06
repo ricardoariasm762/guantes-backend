@@ -56,14 +56,34 @@ if ($LASTEXITCODE -ne 0) {
 # 4. Iniciar sesion en Amazon ECR y publicar imagenes
 Write-Host ""
 Write-Host "Iniciando sesion en Amazon ECR..." -ForegroundColor Yellow
-$loginPass = (aws ecr get-login-password --region "$Region").Trim()
-$loginPass | docker login --username AWS --password-stdin "$ecrUri"
+# En Windows, el administrador de credenciales (wincred) rechaza el token de ECR por su tamano
+# ("The stub received bad data"). Se usa una configuracion temporal de Docker sin credsStore.
+$dockerConfigOriginal = $env:DOCKER_CONFIG
+$dockerConfigTemp = Join-Path $env:TEMP "docker-ecr-guantes"
+New-Item -ItemType Directory -Force -Path $dockerConfigTemp | Out-Null
+[System.IO.File]::WriteAllText((Join-Path $dockerConfigTemp "config.json"), "{}")
+$env:DOCKER_CONFIG = $dockerConfigTemp
+try {
+    $loginPass = (aws ecr get-login-password --region "$Region")
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($loginPass)) {
+        Write-Host "ERROR: no se pudo obtener el token de ECR (revisa la sesion con aws login)." -ForegroundColor Red; exit 1
+    }
+    $loginPass.Trim() | docker login --username AWS --password-stdin "$ecrUri"
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: docker login en ECR fallo." -ForegroundColor Red; exit 1 }
 
-Write-Host "Publicando imagen ${ecrUri}:${commitSha}..." -ForegroundColor Yellow
-docker push "${ecrUri}:${commitSha}"
+    Write-Host "Publicando imagen ${ecrUri}:${commitSha}..." -ForegroundColor Yellow
+    docker push "${ecrUri}:${commitSha}"
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: docker push fallo." -ForegroundColor Red; exit 1 }
 
-Write-Host "Publicando etiqueta ${ecrUri}:latest..." -ForegroundColor Yellow
-docker push "${ecrUri}:latest"
+    Write-Host "Publicando etiqueta ${ecrUri}:latest..." -ForegroundColor Yellow
+    docker push "${ecrUri}:latest"
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: docker push de latest fallo." -ForegroundColor Red; exit 1 }
+}
+finally {
+    docker logout "$ecrUri" 2>$null | Out-Null
+    $env:DOCKER_CONFIG = $dockerConfigOriginal
+    Remove-Item -Recurse -Force $dockerConfigTemp -ErrorAction SilentlyContinue
+}
 
 # 5. Reiniciar servicio en EC2 usando AWS SSM (sin SSH)
 Write-Host ""
@@ -82,6 +102,9 @@ aws ssm wait command-executed `
     --command-id "$commandId" `
     --instance-id "$instanceId" `
     --region "$Region"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: el reinicio en EC2 fallo. Revisa los logs con .\logs-backend.ps1" -ForegroundColor Red; exit 1
+}
 
 Write-Host "-> Servicio reiniciado exitosamente en EC2." -ForegroundColor Green
 
