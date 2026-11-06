@@ -17,6 +17,9 @@ RUN mvn clean package -DskipTests
 FROM --platform=linux/amd64 eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
+# Configuración de zona horaria oficial para Colombia
+ENV TZ=America/Bogota
+
 # Instalar curl para el HEALTHCHECK y crear usuario y grupo sin privilegios
 RUN apk add --no-cache curl \
     && addgroup -S appgroup \
