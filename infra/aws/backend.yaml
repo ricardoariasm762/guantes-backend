@@ -209,7 +209,10 @@ Resources:
                   - ssm:GetParameters
                   - ssm:GetParameter
                   - ssm:GetParametersByPath
-                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/guantes/*
+                # GetParametersByPath evalua el ARN de la ruta (/guantes), no solo los hijos (/guantes/*)
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/guantes
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/guantes/*
               - Effect: Allow
                 Action:
                   - kms:Decrypt
