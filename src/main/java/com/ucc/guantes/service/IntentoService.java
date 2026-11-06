@@ -13,7 +13,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.ucc.guantes.model.FuentePrediccion;
+import com.ucc.guantes.model.Rol;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,13 +33,36 @@ public class IntentoService {
 
     @Transactional
     public IntentoResponse registrarIntento(IntentoRequest request, String userEmail) {
+        String email = userEmail;
+        if (email == null || email.isBlank()) {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null && auth.isAuthenticated() && !"anonymousUser".equals(auth.getPrincipal())) {
+                email = auth.getName();
+            }
+        }
+
+        Usuario usuarioAutenticado = null;
+        if (email != null && !email.isBlank()) {
+            usuarioAutenticado = usuarioRepository.findByEmail(email).orElse(null);
+        }
+
         Usuario usuario;
         if (request.getUsuarioId() != null) {
-            usuario = usuarioRepository.findById(request.getUsuarioId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Usuario", "id", request.getUsuarioId()));
-        } else if (userEmail != null && !userEmail.isBlank()) {
-            usuario = usuarioRepository.findByEmail(userEmail)
-                    .orElseThrow(() -> new ResourceNotFoundException("Usuario", "email", userEmail));
+            boolean esMismoUsuario = usuarioAutenticado != null && request.getUsuarioId().equals(usuarioAutenticado.getId());
+            if (!esMismoUsuario) {
+                boolean esDocenteOAdmin = usuarioAutenticado != null && (
+                        usuarioAutenticado.getRol() == Rol.DOCENTE || usuarioAutenticado.getRol() == Rol.ADMIN
+                );
+                if (!esDocenteOAdmin) {
+                    throw new AccessDeniedException("No tiene permisos para registrar intentos a nombre de otro usuario");
+                }
+                usuario = usuarioRepository.findById(request.getUsuarioId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Usuario", "id", request.getUsuarioId()));
+            } else {
+                usuario = usuarioAutenticado;
+            }
+        } else if (usuarioAutenticado != null) {
+            usuario = usuarioAutenticado;
         } else {
             throw new IllegalArgumentException("Debe especificarse el usuario del intento");
         }
@@ -141,16 +168,32 @@ public class IntentoService {
                 .orElseThrow(() -> new ResourceNotFoundException("IntentoPractica", "id", id));
 
         Usuario usuario = intento.getUsuario();
-        if (userEmail != null && !userEmail.isBlank()) {
-            Usuario invocador = usuarioRepository.findByEmail(userEmail)
-                    .orElseThrow(() -> new ResourceNotFoundException("Usuario", "email", userEmail));
-            if (!invocador.getRol().name().equals("ADMIN") && !usuario.getId().equals(invocador.getId())) {
-                throw new com.ucc.guantes.exception.BadRequestException("No tiene permisos para eliminar este intento");
+        String email = userEmail;
+        if (email == null || email.isBlank()) {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null && auth.isAuthenticated() && !"anonymousUser".equals(auth.getPrincipal())) {
+                email = auth.getName();
             }
         }
 
+        if (email != null && !email.isBlank()) {
+            Usuario invocador = usuarioRepository.findByEmail(email)
+                    .orElseThrow(() -> new AccessDeniedException("Usuario no encontrado"));
+            boolean esAdmin = invocador.getRol() == Rol.ADMIN;
+            boolean esDocente = invocador.getRol() == Rol.DOCENTE;
+            boolean esDueno = usuario != null && usuario.getId() != null && usuario.getId().equals(invocador.getId());
+
+            if (!esAdmin && !esDocente && !esDueno) {
+                throw new AccessDeniedException("No tiene permisos para eliminar este intento");
+            }
+        } else {
+            throw new AccessDeniedException("No autenticado");
+        }
+
         intentoPracticaRepository.delete(intento);
-        progresoService.recalcularProgreso(usuario.getId());
+        if (usuario != null && usuario.getId() != null) {
+            progresoService.recalcularProgreso(usuario.getId());
+        }
     }
 
     private IntentoResponse mapToResponse(IntentoPractica intento) {

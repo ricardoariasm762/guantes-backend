@@ -45,12 +45,14 @@ public class IntentoController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','DOCENTE') or @autorizacion.esDuenoDelIntento(#id)")
     @Operation(summary = "Obtener intento por ID", description = "Retorna el detalle completo de un intento de práctica incluyendo los pasos")
     public ResponseEntity<IntentoResponse> obtenerPorId(@PathVariable Long id) {
         return ResponseEntity.ok(intentoService.obtenerPorId(id));
     }
 
     @GetMapping("/usuario/{usuarioId}")
+    @PreAuthorize("hasAnyRole('ADMIN','DOCENTE') or @autorizacion.esUsuarioActual(#usuarioId)")
     @Operation(summary = "Listar intentos por usuario", description = "Obtiene todos los intentos de práctica de un usuario específico")
     public ResponseEntity<List<IntentoResponse>> listarPorUsuario(@PathVariable Long usuarioId) {
         return ResponseEntity.ok(intentoService.listarPorUsuario(usuarioId));
@@ -63,6 +65,7 @@ public class IntentoController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','DOCENTE') or @autorizacion.esDuenoDelIntento(#id)")
     @Operation(summary = "Eliminar intento de práctica", description = "Elimina un intento registrado y recalcula automáticamente las estadísticas de progreso")
     public ResponseEntity<Void> eliminarIntento(
             @PathVariable Long id,
